@@ -1,0 +1,12 @@
+# Core Machine Learning & Foundation Models
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.35.0
+
+# Image Processing & Computer Vision
+opencv-python>=4.8.0
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# 3D Geometry & Point Cloud Processing
+open3d>=0.17.0
