@@ -1,0 +1,65 @@
+# ==========================================
+# THESIS SPECIFIC DATA & OUTPUT DIRECTORIES
+# ==========================================
+# Ignore the raw downloaded HuggingFace datasets
+Hospital_000_Val/
+MTMC_Tracking_2025/
+
+# Ignore the extracted frames and metadata folders
+Point_Detection_Tests/
+
+# Ignore all the image processing output folders we created
+dataset/images/
+dataset/annotated/
+dataset/depth_outputs/
+dataset/layout_outputs/
+dataset/partitioned_outputs/
+
+# Ignore custom trained model weights (prevents pushing massive 2GB+ files)
+*.pth
+*.pt
+*.bin
+*.onnx
+*.safetensors
+
+# Ignore raw video and large media files
+*.mp4
+*.avi
+*.mkv
+
+# ==========================================
+# PYTHON & ENVIRONMENT
+# ==========================================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments (Conda / venv)
+.venv/
+venv/
+env/
+ENV/
+thesis_env/
+th_env/
+
+# Environment variables
+.env
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# ==========================================
+# OS & IDE SPECIFIC
+# ==========================================
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# VS Code
+.vscode/
+
+# PyCharm / IntelliJ
+.idea/
