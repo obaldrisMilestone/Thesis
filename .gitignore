@@ -14,6 +14,8 @@ dataset/annotated/
 dataset/depth_outputs/
 dataset/layout_outputs/
 dataset/partitioned_outputs/
+depth/temporal_depth/
+segmentation/temporal_masks/
 
 # Ignore custom trained model weights (prevents pushing massive 2GB+ files)
 *.pth
@@ -26,6 +28,8 @@ dataset/partitioned_outputs/
 *.mp4
 *.avi
 *.mkv
+
+
 
 # ==========================================
 # PYTHON & ENVIRONMENT
