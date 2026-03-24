@@ -104,7 +104,15 @@ class TemporalDepthSegmenter:
         cap.release()
         
         # --- 3. Post-Process for Open3D Compatibility ---
-        depth_map = (accumulated_disparity.max() - accumulated_disparity) + 0.1 
+        # --- 3. Post-Process for Open3D Compatibility ---
+        # 1. Normalize the disparity strictly between 0 and 1 so the math is stable
+        min_disp = accumulated_disparity.min()
+        max_disp = accumulated_disparity.max()
+        disp_normalized = (accumulated_disparity - min_disp) / (max_disp - min_disp + 1e-8)
+
+        # 2. Invert to get true Relative Depth (Z = 1 / Disparity)
+        # We add 0.05 to the denominator to prevent division-by-zero for pixels at infinity
+        depth_map = 1.0 / (disp_normalized + 0.05)
         
         depth_map_normalized = cv2.normalize(
             depth_map, None, 0, 255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U
@@ -117,8 +125,8 @@ class TemporalDepthSegmenter:
 # --- Main Execution ---
 if __name__ == "__main__":
     
-    INPUT_DIR = "/home/user/thesis/code/Hospital_000_Val/MTMC_Tracking_2025/val/Hospital_000/videos"      
-    OUTPUT_DIR = "./dataset/temporal_depth"  
+    INPUT_DIR = "/home/user/thesis/code/dataset/Hospital_000_Val/MTMC_Tracking_2025/val/Hospital_000/videos"      
+    OUTPUT_DIR = "/home/user/thesis/code/depth/temporal_depth"  
     
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 

@@ -1,20 +1,41 @@
+import os
+import glob
+import json
 import numpy as np
 import open3d as o3d
 import cv2
 
-class FloorNormalExtractor:
-    def __init__(self, K_matrix):
-        """
-        Initializes the extractor with the camera's Intrinsic matrix (K).
-        """
-        self.K = K_matrix
+class MetricFloorNormalExtractor:
+    def __init__(self):
+        pass
 
-    def extract_normal(self, raw_depth_map, floor_mask):
+    def parse_intrinsics(self, json_path):
         """
-        Takes the raw floating-point depth map (.npy) and the binary floor mask (.jpg),
-        and calculates the 3D surface normal of the floor.
+        Reads the camera calibration JSON and extracts the 3x3 Intrinsic Matrix (K).
+        Adapts to standard calibration dictionary structures.
         """
-        # 1. Ensure the mask and depth map are the exact same resolution
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+            
+        # Drill down into the calibration dictionary 
+        # (Based on the structure built in AI-SmartSpaces_processing.py)
+        calib = data.get('calibration', {})
+        
+        # Datasets often store the intrinsic matrix under 'K', 'intrinsics', or 'intrinsic_matrix'
+        if 'intrinsicMatrix' in calib:
+            return np.array(calib['intrinsicMatrix'])
+        elif 'intrinsics' in calib:
+            return np.array(calib['intrinsics'])
+        elif 'intrinsic_matrix' in calib:
+            return np.array(calib['intrinsic_matrix'])
+        else:
+            raise ValueError(f"Could not find a valid K matrix in {json_path}")
+
+    def extract_normal(self, raw_depth_map, floor_mask, K_matrix):
+        """
+        Masks the depth map, unprojects it to 3D using K, and finds the floor plane.
+        """
+        # 1. Match resolutions if they differ
         if floor_mask.shape[:2] != raw_depth_map.shape[:2]:
             floor_mask = cv2.resize(
                 floor_mask, 
@@ -22,33 +43,32 @@ class FloorNormalExtractor:
                 interpolation=cv2.INTER_NEAREST
             )
 
-        # 2. Mask the Depth Map
-        # We only keep depth values where the mask is 255 (Floor). Everything else becomes 0.0.
+        # 2. Mask the depth (keep only floor pixels, zero out the rest)
         masked_depth = np.where(floor_mask == 255, raw_depth_map, 0.0).astype(np.float32)
 
-        # 3. Convert to Open3D Format
+        # 3. Create Open3D Image
         depth_image = o3d.geometry.Image(masked_depth)
 
+        # 4. Extract Intrinsic Focal Lengths and Principal Points
         h, w = raw_depth_map.shape
-        fx, fy = self.K[0, 0], self.K[1, 1]
-        cx, cy = self.K[0, 2], self.K[1, 2]
-        
+        fx, fy = K_matrix[0, 0], K_matrix[1, 1]
+        cx, cy = K_matrix[0, 2], K_matrix[1, 2]
         intrinsics = o3d.camera.PinholeCameraIntrinsic(w, h, fx, fy, cx, cy)
 
-        # 4. Generate Point Cloud (Open3D automatically ignores depth=0 pixels)
+        # 5. Unproject 2D to 3D Point Cloud
         pcd = o3d.geometry.PointCloud.create_from_depth_image(depth_image, intrinsics)
         
-        # Downsample for significantly faster processing
-        pcd = pcd.voxel_down_sample(voxel_size=0.05)
+        # Downsample. Because we used K, voxel_size is now in METERS (or the unit of K).
+        # 0.05 means we group points into 5cm chunks.
+        pcd = pcd.voxel_down_sample(voxel_size=0.05) 
         
         if len(pcd.points) < 100:
-            print("Warning: Not enough floor points found in the masked area.")
+            print("  -> Warning: Not enough 3D points to confidently fit a plane.")
             return None, None
 
-        # 5. Fit a mathematical plane using RANSAC
-        # plane_model returns [A, B, C, D] from the equation Ax + By + Cz + D = 0
+        # 6. Fit Mathematical Plane (RANSAC)
         plane_model, inliers = pcd.segment_plane(
-            distance_threshold=0.05,
+            distance_threshold=0.05, # 5cm tolerance for depth noise
             ransac_n=3,
             num_iterations=1000
         )
@@ -56,37 +76,81 @@ class FloorNormalExtractor:
         a, b, c, d = plane_model
         normal = np.array([a, b, c])
 
-        # 6. Directional Normalization
-        # In OpenCV camera coordinates, the Y-axis points DOWN into the floor.
-        # We want our floor normal pointing UP towards the camera, so the Y component should be negative.
+        # 7. Directional Normalization
+        # OpenCV camera axes: X is right, Y is DOWN, Z is forward.
+        # We want the floor normal pointing UP towards the ceiling, so the Y component must be negative.
         if normal[1] > 0:
             normal = -normal
             d = -d
 
         camera_height = abs(d)
-
-        print(f"Floor Normal Vector (Nx, Ny, Nz): [{normal[0]:.4f}, {normal[1]:.4f}, {normal[2]:.4f}]")
-        print(f"Estimated Camera Height: {camera_height:.3f} units")
-
         return normal, camera_height
 
-# --- Example Usage ---
+# --- Main Batch Execution ---
 if __name__ == "__main__":
-    # Example Camera Intrinsic Matrix (Replace with your actual calibration)
-    K_MATRIX = np.array([
-        [800.0, 0.0,   640.0],
-        [0.0,   800.0, 360.0],
-        [0.0,   0.0,   1.0]
-    ])
     
-    extractor = FloorNormalExtractor(K_MATRIX)
+    # Define where the different pieces of data live
+    DEPTH_DIR = "/home/user/thesis/code/depth/temporal_depth"
+    MASK_DIR = "/home/user/thesis/code/segmentation/temporal_masks"
+    META_DIR = "/home/user/thesis/code/dataset/Point_Detection_Tests" # From your AI-SmartSpaces_processing.py script
     
-    # Load your files (e.g., from the outputs of your previous scripts)
-    # Using the raw .npy depth file preserves the exact float distances!
-    depth_array = np.load("./dataset/temporal_depth/Camera_18_temporal_depth_raw.npy") 
-    floor_binary_mask = cv2.imread("./dataset/temporal_masks/Camera_18_temporal_bg.jpg", cv2.IMREAD_GRAYSCALE)
+    # Output file
+    OUTPUT_JSON_PATH = "./geometry/camera_extrinsics.json"
     
-    # We threshold just in case JPEG compression made the binary mask fuzzy
-    _, floor_binary_mask = cv2.threshold(floor_binary_mask, 127, 255, cv2.THRESH_BINARY)
+    extractor = MetricFloorNormalExtractor()
+    metadata_files = glob.glob(os.path.join(META_DIR, "*_metadata.json"))
     
-    normal, height = extractor.extract_normal(depth_array, floor_binary_mask)
+    # Dictionary to hold all the results before saving
+    all_camera_results = {}
+    
+    if not metadata_files:
+        print(f"No metadata JSONs found in '{META_DIR}'.")
+        
+    for meta_path in metadata_files:
+        filename = os.path.basename(meta_path)
+        camera_id = filename.replace("_metadata.json", "")
+        print(f"\nProcessing {camera_id}...")
+        
+        try:
+            expected_depth_name = f"{camera_id}_temporal_depth_raw.npy"
+            expected_mask_name = f"{camera_id}_temporal_bg.jpg"
+            
+            depth_path = os.path.join(DEPTH_DIR, expected_depth_name)
+            mask_path = os.path.join(MASK_DIR, expected_mask_name)
+            
+            if not os.path.exists(depth_path):
+                print(f"  -> Skipping: Missing depth map at {depth_path}")
+                continue
+            if not os.path.exists(mask_path):
+                print(f"  -> Skipping: Missing mask at {mask_path}")
+                continue
+                
+            K_matrix = extractor.parse_intrinsics(meta_path)
+            depth_array = np.load(depth_path)
+            
+            floor_mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+            _, floor_mask = cv2.threshold(floor_mask, 127, 255, cv2.THRESH_BINARY)
+            
+            normal, height = extractor.extract_normal(depth_array, floor_mask, K_matrix)
+            
+            if normal is not None:
+                print(f"  -> Metric Floor Normal: [{normal[0]:.4f}, {normal[1]:.4f}, {normal[2]:.4f}]")
+                print(f"  -> Unscaled Camera Height: {height:.3f} units")
+                
+                # Store the results in the dictionary. 
+                # We must cast numpy floats to native Python floats for json.dump() to work!
+                all_camera_results[camera_id] = {
+                    "floor_normal": [float(normal[0]), float(normal[1]), float(normal[2])],
+                    "camera_height": float(height)
+                }
+                
+        except Exception as e:
+            print(f"  -> Error processing {camera_id}: {e}")
+            
+    # Save the accumulated results to a master JSON file
+    if all_camera_results:
+        with open(OUTPUT_JSON_PATH, 'w') as f:
+            json.dump(all_camera_results, f, indent=4)
+        print(f"\nSuccessfully saved all extrinsics data to {OUTPUT_JSON_PATH}")
+    else:
+        print("\nNo results were extracted to save.")
