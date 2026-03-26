@@ -9,6 +9,7 @@ dependencies = [
     "open3d>=0.19.0",
     "opencv-python>=4.13.0.92",
     "pillow>=12.1.1",
+    "segment-anything>=1.0",
     "torch>=2.10.0",
     "torchvision>=0.25.0",
     "transformers>=5.3.0",
