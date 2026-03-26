@@ -16,6 +16,8 @@ dataset/layout_outputs/
 dataset/partitioned_outputs/
 depth/temporal_depth/
 segmentation/temporal_masks/
+segmentation/boundary_lines/
+geometry/bev_projections/
 
 # Ignore custom trained model weights (prevents pushing massive 2GB+ files)
 *.pth
