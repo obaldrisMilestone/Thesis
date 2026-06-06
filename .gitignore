@@ -20,6 +20,10 @@ segmentation/boundary_lines/
 geometry/bev_projections/
 geometry/walls_normals/
 segmentation/boundary_lines_colinear/
+depth/temporal_depth2/
+depth/temporal_depth2_cleaned/
+segmentation/panoptic_walls/
+segmentation/temporal_masks2
 
 # Ignore custom trained model weights (prevents pushing massive 2GB+ files)
 *.pth
