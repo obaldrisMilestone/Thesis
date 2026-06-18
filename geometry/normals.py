@@ -46,29 +46,38 @@ class MetricFloorNormalExtractor:
         # 2. Mask the depth (keep only floor pixels, zero out the rest)
         masked_depth = np.where(floor_mask == 255, raw_depth_map, 0.0).astype(np.float32)
 
-        # 3. Create Open3D Image
-        depth_image = o3d.geometry.Image(masked_depth)
-
-        # 4. Extract Intrinsic Focal Lengths and Principal Points
-        h, w = raw_depth_map.shape
+        # 3. Manual unprojection — avoids depth_scale assumptions in Open3D
         fx, fy = K_matrix[0, 0], K_matrix[1, 1]
         cx, cy = K_matrix[0, 2], K_matrix[1, 2]
-        intrinsics = o3d.camera.PinholeCameraIntrinsic(w, h, fx, fy, cx, cy)
 
-        # 5. Unproject 2D to 3D Point Cloud
-        pcd = o3d.geometry.PointCloud.create_from_depth_image(depth_image, intrinsics)
-        
-        # Downsample. Because we used K, voxel_size is now in METERS (or the unit of K).
-        # 0.05 means we group points into 5cm chunks.
-        pcd = pcd.voxel_down_sample(voxel_size=0.05) 
-        
+        v_idx, u_idx = np.where(masked_depth > 0)
+        z = masked_depth[v_idx, u_idx]
+        x = (u_idx - cx) * z / fx
+        y = (v_idx - cy) * z / fy
+
+        if len(z) < 100:
+            print("  -> Warning: Not enough 3D points to confidently fit a plane.")
+            return None, None
+
+        points = np.vstack([x, y, z]).T
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(points)
+
+        # 4. Adaptive thresholds — scale with median depth so metric and
+        #    relative depth maps both work
+        median_z = float(np.median(z))
+        voxel_size        = median_z * 0.01   # 1% of median depth
+        ransac_threshold  = median_z * 0.01   # 1% of median depth
+
+        pcd = pcd.voxel_down_sample(voxel_size=voxel_size)
+
         if len(pcd.points) < 100:
             print("  -> Warning: Not enough 3D points to confidently fit a plane.")
             return None, None
 
-        # 6. Fit Mathematical Plane (RANSAC)
+        # 5. Fit Mathematical Plane (RANSAC)
         plane_model, inliers = pcd.segment_plane(
-            distance_threshold=0.05, # 5cm tolerance for depth noise
+            distance_threshold=ransac_threshold,
             ransac_n=3,
             num_iterations=1000
         )

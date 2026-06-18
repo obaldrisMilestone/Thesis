@@ -47,28 +47,45 @@ def intersect_3_planes(plane1, plane2, plane3):
 
 def extract_room_corners(depth_map, floor_mask, wall_mask, intrinsic_matrix):
     corners_3d = []
-    
+
+    # Adaptive thresholds — 5% of median scene depth.
+    # Permissive enough for one RANSAC iteration to capture a full wall surface
+    # (tight thresholds cause micro-patches, burning all iterations on one wall).
+    # The duplicate-normal filter below prevents false corners from over-grouping.
+    valid_z = depth_map[depth_map > 0]
+    if len(valid_z) == 0:
+        return []
+    median_z = float(np.median(valid_z))
+    distance_threshold = median_z * 0.05
+    normal_radius      = median_z * 0.05
+
     # 1. Extract Floor
     floor_pcd = unproject_to_3d(depth_map, floor_mask, intrinsic_matrix)
     if len(floor_pcd.points) < 100:
         return [] # Not enough floor points
-    floor_plane, _ = find_plane_ransac(floor_pcd, distance_threshold=0.05)
-    
+    floor_plane, _ = find_plane_ransac(floor_pcd, distance_threshold=distance_threshold)
+
     # 2. Extract Walls
     wall_pcd = unproject_to_3d(depth_map, wall_mask, intrinsic_matrix)
-    wall_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+    wall_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=normal_radius, max_nn=30))
     
     wall_planes = []
     remaining_wall_pcd = wall_pcd
-    
+
     max_walls = 4
     for i in range(max_walls):
         if len(remaining_wall_pcd.points) < 1000:
             break
-            
-        plane_model, inliers = find_plane_ransac(remaining_wall_pcd, distance_threshold=0.05)
-        wall_planes.append(plane_model)
+
+        plane_model, inliers = find_plane_ransac(remaining_wall_pcd, distance_threshold=distance_threshold)
         remaining_wall_pcd = remaining_wall_pcd.select_by_index(inliers, invert=True)
+
+        # Discard if a parallel plane in the same direction was already found
+        # (handles parallel corridor walls producing duplicate normals)
+        n_new = np.array(plane_model[:3])
+        if any(np.dot(n_new, np.array(p[:3])) > 0.95 for p in wall_planes):
+            continue
+        wall_planes.append(plane_model)
         
     # 3. Find Intersections
     for i in range(len(wall_planes)):

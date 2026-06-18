@@ -27,7 +27,6 @@ sys.path.insert(0, os.path.join(_ROOT, 'cameras_and_floorplans'))
 
 from normals import MetricFloorNormalExtractor
 from corners_extraction import extract_room_corners, project_3d_to_2d
-from bev_projection import create_bev_homography
 from corner_matcher import (
     direction_attr_to_world_azimuth,
     build_rotation_matrix,
@@ -42,11 +41,11 @@ from corner_matcher import (
 BASE_DIR = '/home/user/thesis/code/dataset/MTMC_Tracking_2025'
 SCENARIO = 'val/Hospital_000'
 SCENARIO_DIR = os.path.join(BASE_DIR, SCENARIO)
-CAMERA_ID    = 'Camera_02'
+CAMERA_ID    = 'Camera_08'
 
 # Paths to pre-computed artefacts (None = auto-detect from SCENARIO_DIR)
-DEPTH_PATH   = os.path.join(SCENARIO_DIR, 'depth_maps', f'{CAMERA_ID}_bg.npy')  # .npy  — uint16 mm (GT) or float32 relative (DepthAnything)
-MASK_PATH    = '/home/user/thesis/code/segmentation/temporal_masks2/Camera_02_temporal_bg.jpg'   # .npz  — keys 'floor','wall'  OR  colour-coded .jpg
+DEPTH_PATH   = os.path.join(SCENARIO_DIR, 'depth_maps_normalized', f'{CAMERA_ID}_bg.npy')  # .npy  — uint16 mm (GT) or float32 relative (DepthAnything)
+MASK_PATH    = os.path.join('/home/user/thesis/code/segmentation/temporal_masks2', f'{CAMERA_ID}_temporal_bg.jpg')   # .npz  — keys 'floor','wall'  OR  colour-coded .jpg
 ANNOTATIONS_DIR = os.path.join(BASE_DIR, 'annotations', SCENARIO)  # directory containing annotated_floorplan.json + annotated_cameras.json
 
 # Corner-matching parameters
@@ -636,16 +635,6 @@ def stage_homography(corners_cam, matches, floor_result, calib,
     print("\n  Reprojection error  (image annotation → floorplan pixel):")
     _compare_homographies(H_fp, H_fp_gt, cam_image_pts, fp_anns, calib['scale'])
 
-    # ── BEV (optional, uses estimated height) ────────────────────────────────
-    if floor_result is not None:
-        result['H_bev'] = create_bev_homography(
-            K,
-            floor_result['floor_normal'],
-            h_est,
-            bev_res_px_per_m=BEV_PX_PER_M,
-            bev_size=BEV_SIZE,
-        )
-
     return result
 
 
@@ -847,14 +836,13 @@ def run(scenario_dir, camera_id,
         corners_cam, calib, floor_result, fp_anns, map_h
     )
 
-    # ── Stage 3 visualisation ─────────────────────────────────────────────────
     if frame is not None:
         results_dir = os.path.join(_ROOT, 'results')
         os.makedirs(results_dir, exist_ok=True)
-        stage3_path = os.path.join(results_dir, f'{camera_id}_stage3_matching.jpg')
-        stage3_img  = _draw_stage3_matching(
+        stage3_img = _draw_stage3_matching(
             frame, corners_cam, matches, cam_anns, camera_id, calib['K']
         )
+        stage3_path = os.path.join(results_dir, f'{camera_id}_stage3_matching.jpg')
         cv2.imwrite(stage3_path, stage3_img)
         print(f"\n  Stage 3 visualisation saved: {stage3_path}")
 
@@ -865,18 +853,12 @@ def run(scenario_dir, camera_id,
         map_h,
     )
 
-    # ── save visuals ─────────────────────────────────────────────────────────
-    print("\n=== Saving outputs ===")
-    save_outputs(output_dir, camera_id, frame, floorplan,
-                 corners_cam, matches, calib, H_dict, map_h)
-
     print(f"\nDone.")
     return {
         'calib':       calib,
         'floor':       floor_result,
         'corners_cam': corners_cam,
         'matches':     matches,
-        'H_bev':       H_dict['H_bev'],
         'H_fp':        H_dict['H_fp'],
     }
 
