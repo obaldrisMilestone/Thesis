@@ -15,7 +15,7 @@ import numpy as np
 from pathlib import Path
 
 # ── Config ────────────────────────────────────────────────────────────────────
-INPUT_PATH = "/home/user/thesis/code/dataset/MTMC_Tracking_2025/val/Hospital_000"
+INPUT_PATH = "/home/user/thesis/code/dataset/MTMC_Tracking_2025/val/"
 NUM_FRAMES = 1   # 1 = first frame only; >1 = evenly spaced including first & last
 IMAGE_EXT  = ".jpg"
 # ─────────────────────────────────────────────────────────────────────────────
